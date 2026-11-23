@@ -55,6 +55,10 @@ class Maze:
         else:
             self.add_wall(pos)
 
+    def clear_walls(self):
+        """Remove every wall (start and goal stay where they are)."""
+        self.grid[:] = EMPTY
+
     def set_start(self, pos):
         if not self.is_walkable(pos):
             raise ValueError(f"Start {pos} must be inside the grid and not a wall.")
