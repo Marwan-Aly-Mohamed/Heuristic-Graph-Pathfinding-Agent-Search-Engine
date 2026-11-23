@@ -7,6 +7,7 @@ Idea: every cell gets a small integer CODE (empty, wall, explored, ...).
   make_figure()    -> matplotlib figure with titles + legend (for PNG export)
 """
 
+import os
 import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
@@ -81,6 +82,10 @@ def codes_to_image(codes, cell_px=12):
 
 def save_gif(maze, result, path, cell_px=10, max_frames=60, frame_ms=80, final_hold_ms=1500):
     """Animated GIF of the search. Long searches are sampled to <= max_frames."""
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)       # create the folder if it is missing
+
     total = len(result.steps)
     wanted = min(max_frames, total + 1)
     indices = sorted(set(np.linspace(0, total, num=wanted).astype(int).tolist()))
@@ -92,7 +97,6 @@ def save_gif(maze, result, path, cell_px=10, max_frames=60, frame_ms=80, final_h
     frames[0].save(path, save_all=True, append_images=frames[1:],
                    duration=durations, loop=0)
     return len(frames)
-
 
 def make_figure(maze, results, step=None):
     """Matplotlib figure: one panel per result, with a title and a color legend.
@@ -124,3 +128,4 @@ def make_figure(maze, results, step=None):
     fig.legend(handles=handles, loc="lower center", ncol=7, fontsize=9, frameon=False)
     fig.subplots_adjust(bottom=0.14, top=0.84, wspace=0.08)
     return fig
+

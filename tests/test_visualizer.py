@@ -121,3 +121,10 @@ def test_midway_figure_title_shows_progress_not_final_stats():
     assert "path =" not in title
     final_title = make_figure(m, r).axes[0].get_title()
     assert "path =" in final_title
+
+
+def test_gif_creates_missing_folder(tmp_path):
+    m, r = solved()
+    target = tmp_path / "does_not_exist_yet" / "search.gif"
+    save_gif(m, r, str(target), cell_px=6, max_frames=10)
+    assert target.exists()
