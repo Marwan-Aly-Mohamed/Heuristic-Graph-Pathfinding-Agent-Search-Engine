@@ -55,6 +55,11 @@ class Maze:
         else:
             self.add_wall(pos)
 
+    def signature(self):
+        """A value that changes whenever the grid, start or goal changes.
+        The UI uses it to know when old search results no longer match the maze."""
+        return (self.rows, self.cols, self.start, self.goal, self.grid.tobytes())
+
     def clear_walls(self):
         """Remove every wall (start and goal stay where they are)."""
         self.grid[:] = EMPTY

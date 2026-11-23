@@ -60,3 +60,85 @@ def test_changing_the_tool_does_not_change_the_maze():
     at.sidebar.radio[0].set_value("Set goal").run()
     assert not at.exception
     assert (at.session_state["maze"].grid == before).all()
+
+
+# ---------- step 7.3: algorithms ----------
+def find_button(at, label):
+    return next(b for b in at.sidebar.button if b.label == label)
+
+
+def find_radio(at, label):
+    return next(r for r in at.sidebar.radio if r.label == label)
+
+
+def open_maze(at):
+    """Replace the maze with an empty one (so a path surely exists)."""
+    at.session_state["maze"].clear_walls()
+
+
+def test_no_results_before_running():
+    at = make_app().run()
+    assert at.session_state["results"] is None
+
+
+def test_run_astar_shows_a_found_path():
+    at = make_app().run()
+    open_maze(at)
+    find_button(at, "Run selected algorithm").click().run()
+    assert not at.exception
+    results = at.session_state["results"]
+    assert len(results) == 1 and results[0].algorithm == "A*"
+    assert results[0].found and results[0].path_length == 19 + 29
+    assert len(at.success) == 1
+
+
+def test_run_dijkstra_when_selected():
+    at = make_app().run()
+    open_maze(at)
+    find_radio(at, "Algorithm").set_value("Dijkstra").run()
+    assert at.session_state["results"] is None              # choosing does not run
+    find_button(at, "Run selected algorithm").click().run()
+    assert at.session_state["results"][0].algorithm == "Dijkstra"
+
+
+def test_compare_runs_both_on_the_same_maze():
+    at = make_app().run()
+    open_maze(at)
+    find_button(at, "Compare both algorithms").click().run()
+    assert not at.exception
+    a, d = at.session_state["results"]
+    assert (a.algorithm, d.algorithm) == ("A*", "Dijkstra")
+    assert a.path_length == d.path_length
+    assert a.expanded_nodes <= d.expanded_nodes
+    assert len(at.success) == 2
+
+
+def test_unreachable_goal_shows_an_error_message():
+    at = make_app().run()
+    maze = at.session_state["maze"]
+    maze.clear_walls()
+    for r in range(maze.rows):
+        maze.add_wall((r, 5))                                # full wall column
+    find_button(at, "Run selected algorithm").click().run()
+    assert not at.exception
+    assert not at.session_state["results"][0].found
+    assert len(at.error) == 1
+
+
+def test_results_are_cleared_when_the_maze_changes():
+    at = make_app().run()
+    open_maze(at)
+    find_button(at, "Run selected algorithm").click().run()
+    assert at.session_state["results"] is not None
+    at.session_state["maze"].add_wall((5, 5))                # simulate an edit
+    at.run()
+    assert at.session_state["results"] is None
+    assert len(at.info) == 1
+
+
+def test_results_stay_when_nothing_changes():
+    at = make_app().run()
+    open_maze(at)
+    find_button(at, "Run selected algorithm").click().run()
+    at.sidebar.slider[2].set_value(0.4).run()                # unrelated slider
+    assert at.session_state["results"] is not None

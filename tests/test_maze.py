@@ -76,3 +76,22 @@ def test_dict_round_trip():
     copy = Maze.from_dict(m.to_dict())
     assert (copy.grid == m.grid).all()
     assert copy.start == m.start and copy.goal == m.goal
+
+
+def test_signature_changes_when_the_maze_changes():
+    m = Maze(6, 6)
+    same = Maze(6, 6)
+    assert m.signature() == same.signature()           # equal mazes, equal signature
+    before = m.signature()
+    m.add_wall((2, 2))
+    assert m.signature() != before                     # wall added
+    before = m.signature()
+    m.set_start((1, 1))
+    assert m.signature() != before                     # start moved
+    before = m.signature()
+    m.set_goal((3, 3))
+    assert m.signature() != before                     # goal moved
+    m.remove_wall((2, 2))
+    m.set_start((0, 0))
+    m.set_goal((5, 5))
+    assert m.signature() == same.signature()           # back to the original
