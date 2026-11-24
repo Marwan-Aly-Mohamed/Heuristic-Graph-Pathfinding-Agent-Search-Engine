@@ -309,10 +309,5 @@ What is covered:
 - Random mazes are not guaranteed to be solvable unless **Make sure a path exists** is ticked. This is intentional, so unreachable goals can be tested.
 - Not implemented: Q-Learning (optional in the brief), and bidirectional search or other heuristics.
 
----
-
-## Author
-
-Your Name · [GitHub profile](https://github.com/YOUR-USERNAME)
 
 <!-- Add a license section here if you want one, for example MIT. -->
