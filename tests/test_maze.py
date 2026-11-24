@@ -1,6 +1,6 @@
 import pytest
 
-from core.maze import Maze
+from core.maze import DIFFICULTY_LEVELS, DIFFICULTY_OPTIONS, Maze
 
 
 def test_default_start_and_goal():
@@ -95,3 +95,59 @@ def test_signature_changes_when_the_maze_changes():
     m.set_start((0, 0))
     m.set_goal((5, 5))
     assert m.signature() == same.signature()           # back to the original
+
+
+# ---------- step 7.6: has_path, random_solvable, difficulty presets ----------
+def test_has_path_on_open_and_blocked_mazes():
+    m = Maze(6, 6)
+    assert m.has_path()
+    for r in range(6):
+        m.add_wall((r, 3))
+    assert not m.has_path()
+
+
+def test_has_path_false_for_invalid_start():
+    m = Maze(5, 5)
+    m.start = (9, 9)
+    assert not m.has_path()
+
+
+def test_has_path_agrees_with_astar_on_many_random_mazes():
+    from algorithms.astar import astar
+    for seed in range(60):
+        density = [0.1, 0.3, 0.45, 0.6][seed % 4]
+        m = Maze.random(15, 15, density, seed=seed)
+        assert m.has_path() == astar(m).found
+
+
+def test_random_solvable_returns_a_solvable_maze():
+    for density in (0.1, 0.25, 0.4):
+        m, used = Maze.random_solvable(20, 20, density, seed=0)
+        assert m is not None and m.has_path()
+        assert used >= 0
+
+
+def test_random_solvable_keeps_the_first_seed_when_it_already_works():
+    first = Maze.random(10, 10, 0.1, seed=7)
+    assert first.has_path()
+    m, used = Maze.random_solvable(10, 10, 0.1, seed=7)
+    assert used == 7 and (m.grid == first.grid).all()
+
+
+def test_random_solvable_skips_unsolvable_seeds():
+    # find a seed whose plain random maze has no path, then ask for a solvable one from it
+    bad = next(s for s in range(500) if not Maze.random(15, 15, 0.45, seed=s).has_path())
+    m, used = Maze.random_solvable(15, 15, 0.45, seed=bad)
+    assert used > bad and m.has_path()
+
+
+def test_random_solvable_gives_up_when_impossible():
+    m, used = Maze.random_solvable(10, 10, 0.9, seed=0, max_tries=5)
+    assert m is None and used is None
+
+
+def test_difficulty_presets_are_ordered_and_valid():
+    assert DIFFICULTY_LEVELS["Easy"] < DIFFICULTY_LEVELS["Medium"] < DIFFICULTY_LEVELS["Hard"]
+    assert DIFFICULTY_OPTIONS == ["Easy", "Medium", "Hard", "Custom"]
+    for density in DIFFICULTY_LEVELS.values():
+        Maze.random(5, 5, density, seed=1)                  # must be accepted

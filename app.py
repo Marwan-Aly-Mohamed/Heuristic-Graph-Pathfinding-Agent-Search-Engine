@@ -1,18 +1,21 @@
-"""Streamlit app - Step 7.5: editor + run algorithms + playback + performance dashboard."""
+"""Streamlit app - Stage 8: difficulty presets, editor, algorithms, playback, dashboard, export."""
 
 import math
 import time
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from core.editor import TOOLS, handle_click
-from core.maze import MAX_SIZE, Maze
+from core.maze import DIFFICULTY_LEVELS, DIFFICULTY_OPTIONS, MAX_SIZE, Maze
 from core.metrics import build_metrics, compare_summary, display_rows
 from core.pathfinding import ALGORITHMS, compare_algorithms, run_search
 from core.result import SearchResult
 from visualization.visualizer import FRONTIER, codes_to_image, frame_codes
+from core.editor import TOOLS, handle_click
+from core.exporter import build_export, to_csv, to_json
 
 st.set_page_config(page_title="Pathfinding Agent", layout="wide")
 st.title("Heuristic Graph Pathfinding Agent Search Engine")
@@ -91,6 +94,36 @@ def render_dashboard(maze, results):
         st.markdown(METRIC_HELP)
 
 
+def export_files(maze, results, include_steps):
+    """Build the CSV and JSON text ONCE per search (and per checkbox choice), then reuse it.
+    Streamlit reruns the script on every click, so rebuilding a big JSON each time would be wasteful."""
+    cache = st.session_state.setdefault("export_cache", {})
+    key = (st.session_state.results_version, include_steps)
+    if cache.get("key") != key:
+        cache.clear()
+        cache["key"] = key
+        cache["csv"] = to_csv(maze, results)
+        cache["json"] = to_json(build_export(maze, results, include_steps))
+        cache["name"] = "pathfinding_results_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    return cache["csv"], cache["json"], cache["name"]
+
+
+def render_export(maze, results):
+    """Download buttons for the CSV (metrics) and JSON (full details and replay log)."""
+    st.subheader("Export results")
+    include_steps = st.checkbox(
+        "Include the step-by-step replay log in the JSON file (makes the file bigger)",
+        value=True, key="include_steps",
+    )
+    csv_text, json_text, base_name = export_files(maze, results, include_steps)
+    c1, c2, _ = st.columns([1, 1, 2])
+    c1.download_button("Download CSV (metrics)", csv_text, file_name=base_name + ".csv",
+                       mime="text/csv", on_click="ignore", key="download_csv")
+    c2.download_button("Download JSON (full log)", json_text, file_name=base_name + ".json",
+                       mime="application/json", on_click="ignore", key="download_json")
+    st.caption(f"CSV: {len(csv_text) / 1024:.1f} KB | JSON: {len(json_text) / 1024:.0f} KB")
+
+
 # ---------- session state: memory that survives reruns ----------
 if "maze" not in st.session_state:
     st.session_state.maze = Maze.random(20, 30, 0.25, seed=2)
@@ -99,6 +132,7 @@ if "last_click" not in st.session_state:
 if "results" not in st.session_state:
     st.session_state.results = None             # list of SearchResult (1 or 2)
     st.session_state.results_signature = None   # which maze those results belong to
+    st.session_state.results_version = 0        # +1 for every new search (used by the export cache)
 
 maze = st.session_state.maze
 
@@ -107,6 +141,7 @@ def store_results(results):
     """Remember results, the maze they belong to, and show the finished search."""
     st.session_state.results = results
     st.session_state.results_signature = maze.signature()
+    st.session_state.results_version += 1
     st.session_state.step_slider = max(len(r.steps) for r in results)
 
 
@@ -115,12 +150,31 @@ with st.sidebar:
     st.header("Maze settings")
     rows = st.slider("Rows", 5, MAX_SIZE, 20)
     cols = st.slider("Columns", 5, MAX_SIZE, 30)
-    density = st.slider("Obstacle density", 0.0, 0.6, 0.25, 0.05)
+    difficulty = st.selectbox(
+    "Difficulty", DIFFICULTY_OPTIONS, index=1,
+    help="Easy = 10% walls, Medium = 25%, Hard = 40%. Choose Custom to set your own density.",
+    )
+    custom_density = st.slider("Custom obstacle density", 0.0, 0.6, 0.25, 0.05,
+                               disabled=(difficulty != "Custom"))
+    density = DIFFICULTY_LEVELS.get(difficulty, custom_density)
     seed = st.number_input("Random seed", min_value=0, max_value=99999, value=2, step=1)
+    ensure_path = st.checkbox(
+        "Make sure a path exists", value=True,
+        help="If the first maze has no route from start to goal, the next seeds are tried.",
+    )
 
     if st.button("Generate random maze"):
-        st.session_state.maze = Maze.random(rows, cols, density, seed=int(seed))
-        st.rerun()
+        if ensure_path:
+            new_maze, used_seed = Maze.random_solvable(rows, cols, density, int(seed))
+        else:
+            new_maze, used_seed = Maze.random(rows, cols, density, seed=int(seed)), int(seed)
+        if new_maze is None:
+            st.warning("Could not find a solvable maze with these settings. "
+                       "Try a lower density, or turn off 'Make sure a path exists'.")
+        else:
+            st.session_state.maze = new_maze
+            st.session_state.generated_info = f"Generated with {round(density * 100)}% walls, seed {used_seed}"
+            st.rerun()
 
     st.header("Maze editor")
     tool = st.radio("Click on the maze to...", TOOLS)
@@ -165,6 +219,9 @@ st.caption(
     f"Grid {maze.rows} x {maze.cols} | walls: {walls} | walkable cells: {maze.total_walkable()} "
     f"| start {maze.start} | goal {maze.goal}"
 )
+
+if st.session_state.get("generated_info"):
+    st.caption(st.session_state.generated_info)
 
 # ---------- main area 2: search results ----------
 st.subheader("Search results")
@@ -212,6 +269,7 @@ else:
         draw_frame(image_slot, text_slot, maze, res, step, result_px)
 
     render_dashboard(maze, results)
+    render_export(maze, results)
 
     # --- auto-play: redraw the panels again and again ---
     if st.session_state.get("playing"):

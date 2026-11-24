@@ -20,6 +20,7 @@ def test_app_starts_without_errors():
 
 def test_generate_button_uses_sidebar_settings():
     at = make_app().run()
+    at.sidebar.selectbox[0].set_value("Custom").run()   # density slider is only active for Custom
     at.sidebar.slider[0].set_value(12)          # rows
     at.sidebar.slider[1].set_value(15)          # columns
     at.sidebar.slider[2].set_value(0.0)         # density
@@ -140,7 +141,7 @@ def test_results_stay_when_nothing_changes():
     at = make_app().run()
     open_maze(at)
     find_button(at, "Run selected algorithm").click().run()
-    at.sidebar.slider[2].set_value(0.4).run()                # unrelated slider
+    at.sidebar.slider[0].set_value(25).run()                 # unrelated slider (rows)
     assert at.session_state["results"] is not None
 
 
@@ -314,3 +315,152 @@ def test_compare_draws_three_charts_and_single_run_draws_none():
     assert len(at.get("vega_lite_chart")) == 3
     run_on_empty_maze(at)                                    # now a single run
     assert len(at.get("vega_lite_chart")) == 0
+
+
+# ---------- step 7.6: difficulty presets ----------
+def wall_fraction(maze):
+    return 1 - maze.total_walkable() / (maze.rows * maze.cols)
+
+
+def press_generate(at):
+    find_button(at, "Generate random maze").click().run()
+    assert not at.exception
+    return at.session_state["maze"]
+
+
+def generate(at, difficulty, rows=50, cols=50, ensure_path=False):
+    at.sidebar.slider[0].set_value(rows)
+    at.sidebar.slider[1].set_value(cols)
+    at.sidebar.selectbox[0].set_value(difficulty).run()
+    at.sidebar.checkbox[0].set_value(ensure_path).run()
+    return press_generate(at)
+
+
+def test_difficulty_defaults_to_medium_and_locks_the_slider():
+    at = make_app().run()
+    assert at.sidebar.selectbox[0].value == "Medium"
+    assert at.sidebar.selectbox[0].options == ["Easy", "Medium", "Hard", "Custom"]
+    assert at.sidebar.slider[2].disabled is True
+    at.sidebar.selectbox[0].set_value("Custom").run()
+    assert at.sidebar.slider[2].disabled is False
+
+
+def test_easy_medium_hard_produce_more_and_more_walls():
+    fractions = {}
+    for level in ("Easy", "Medium", "Hard"):
+        at = make_app().run()
+        fractions[level] = wall_fraction(generate(at, level))
+    assert 0.05 < fractions["Easy"] < 0.15
+    assert 0.19 < fractions["Medium"] < 0.31
+    assert 0.34 < fractions["Hard"] < 0.46
+    assert fractions["Easy"] < fractions["Medium"] < fractions["Hard"]
+
+
+def test_custom_difficulty_uses_the_custom_slider():
+    at = make_app().run()
+    at.sidebar.selectbox[0].set_value("Custom").run()
+    at.sidebar.slider[2].set_value(0.0).run()
+    maze = press_generate(at)
+    assert maze.total_walkable() == maze.rows * maze.cols
+
+
+def test_make_sure_a_path_exists_option():
+    at = make_app().run()
+    maze = generate(at, "Hard", rows=30, cols=30, ensure_path=True)
+    assert maze.has_path()
+    assert any("Generated with 40% walls" in c.value for c in at.caption)
+
+
+def test_failed_generation_shows_a_warning_and_keeps_the_old_maze(monkeypatch):
+    from core.maze import Maze
+    monkeypatch.setattr(Maze, "random_solvable", classmethod(lambda cls, *a, **k: (None, None)))
+    at = make_app().run()
+    before = at.session_state["maze"]
+    press_generate(at)
+    assert at.session_state["maze"] is before                  # old maze kept
+    assert len(at.sidebar.warning) == 1
+    assert "Could not find a solvable maze" in at.sidebar.warning[0].value
+
+
+# ---------- stage 8: export ----------
+def download_labels(at):
+    return [d.proto.label for d in at.get("download_button")]
+
+
+def steps_checkbox(at):
+    return next(c for c in at.checkbox if c.label.startswith("Include the step-by-step"))
+
+
+def test_no_export_buttons_before_running():
+    at = make_app().run()
+    assert download_labels(at) == []
+
+
+def test_single_run_offers_csv_and_json_downloads():
+    import csv
+    import io
+    import json
+    from core.exporter import maze_from_export
+    at = make_app().run()
+    run_on_empty_maze(at)
+    assert download_labels(at) == ["Download CSV (metrics)", "Download JSON (full log)"]
+    cache = at.session_state["export_cache"]
+    rows = list(csv.DictReader(io.StringIO(cache["csv"])))
+    assert [r["algorithm"] for r in rows] == ["A*"]
+    data = json.loads(cache["json"])
+    assert len(data["runs"]) == 1 and "steps" in data["runs"][0]
+    # the file describes exactly the maze that was searched
+    assert maze_from_export(data["maze"]).signature() == at.session_state["maze"].signature()
+
+
+def test_compare_exports_both_algorithms():
+    import csv
+    import io
+    import json
+    at = make_app().run()
+    run_on_empty_maze(at, compare=True)
+    cache = at.session_state["export_cache"]
+    rows = list(csv.DictReader(io.StringIO(cache["csv"])))
+    assert [r["algorithm"] for r in rows] == ["A*", "Dijkstra"]
+    assert [run["algorithm"] for run in json.loads(cache["json"])["runs"]] == ["A*", "Dijkstra"]
+
+
+def test_unticking_the_replay_log_removes_the_steps_from_the_json():
+    import json
+    at = make_app().run()
+    run_on_empty_maze(at)
+    steps_checkbox(at).set_value(False).run()
+    assert not at.exception
+    data = json.loads(at.session_state["export_cache"]["json"])
+    assert "steps" not in data["runs"][0]
+    steps_checkbox(at).set_value(True).run()
+    data = json.loads(at.session_state["export_cache"]["json"])
+    assert "steps" in data["runs"][0]
+
+
+def test_a_new_search_refreshes_the_export():
+    at = make_app().run()
+    run_on_empty_maze(at)
+    assert at.session_state["results_version"] == 1
+    assert "A*" in at.session_state["export_cache"]["csv"]
+    find_radio(at, "Algorithm").set_value("Dijkstra").run()
+    find_button(at, "Run selected algorithm").click().run()
+    assert at.session_state["results_version"] == 2
+    csv_text = at.session_state["export_cache"]["csv"]
+    assert "Dijkstra" in csv_text and "A*" not in csv_text
+
+
+def test_scrubbing_does_not_rebuild_the_export():
+    at = make_app().run()
+    run_on_empty_maze(at, compare=True)
+    before = at.session_state["export_cache"]["json"]
+    main_slider(at, "Step").set_value(3).run()
+    assert at.session_state["export_cache"]["json"] is before     # same object = not rebuilt
+
+
+def test_export_disappears_when_the_results_are_cleared():
+    at = make_app().run()
+    run_on_empty_maze(at)
+    at.session_state["maze"].add_wall((5, 5))                      # simulate an edit
+    at.run()
+    assert download_labels(at) == []

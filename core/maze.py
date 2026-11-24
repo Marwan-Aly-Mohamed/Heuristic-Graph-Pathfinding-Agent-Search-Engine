@@ -16,6 +16,10 @@ DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
 MAX_SIZE = 100  # keeps the app light on a low-spec laptop; change if needed
 
+# Difficulty presets = fraction of cells that become walls
+DIFFICULTY_LEVELS = {"Easy": 0.10, "Medium": 0.25, "Hard": 0.40}
+DIFFICULTY_OPTIONS = list(DIFFICULTY_LEVELS) + ["Custom"]
+
 
 class Maze:
     def __init__(self, rows, cols, start=None, goal=None):
@@ -120,6 +124,35 @@ class Maze:
                     maze.grid[pos] = WALL
         return maze
 
+
+    def has_path(self):
+        """True if the goal can be reached from the start (simple flood fill).
+        This is deliberately NOT A* or Dijkstra, so it can act as an independent check."""
+        if self.validate() is not None:
+            return False
+        seen = {self.start}
+        stack = [self.start]
+        while stack:
+            pos = stack.pop()
+            if pos == self.goal:
+                return True
+            for nb in self.neighbors(pos):
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+        return False
+
+    @classmethod
+    def random_solvable(cls, rows, cols, density=0.25, seed=0, max_tries=200):
+        """Try seeds seed, seed+1, seed+2 ... until the goal is reachable.
+        Returns (maze, seed_used), or (None, None) if nothing worked."""
+        for i in range(max_tries):
+            maze = cls.random(rows, cols, density, seed=seed + i)
+            if maze.has_path():
+                return maze, seed + i
+        return None, None
+
+    
     # ---------- saving (needed for JSON export in Stage 8) ----------
     def to_dict(self):
         return {
